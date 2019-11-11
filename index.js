@@ -59,52 +59,34 @@ const colortable = {
 0xff2000ff: 80,
 0xb40068ff: 130,
 };
-const revtable_ = Object.keys(colortable)
-  .map(k=>[colortable[k], Number(k)])
-revtable_.sort((x,y)=>x[0]-y[0]);
-function revtable(x){
-  for (let k of revtable_) {
-      if (x <= k[0]) {
-        const {r, g, b, a} = Jimp.intToRGBA(k[1]);
-        return [r, g, b, a];
-      }
-  }
-}
-async function rainCell(imagef) {
+
+const target = 20;
+async function seekCell(imagef) {
     const image = await Jimp.read(imagef);
     const width = image.bitmap.width;
     const height = image.bitmap.height;
-    const target = 50;
-    const skip = 10;
     const targetx = 364;
     const targety = 280;
-    const xl = targetx - target / 2;
     const yl = targety - target / 2;
     const rains = []
-    for (let dx = 0; dx < target; dx+=skip){
-        for (let dy = 0; dy < target; dy+=skip){
-            const color = image.getPixelColor(xl+dx,yl+dy);
-            rains.push(colortable[color] || 0);
+    for (let dy = 0; dy < target; dy+=1){
+        const color = image.getPixelColor(targetx,yl+dy);
+        if (colortable[color]){
+          rains.push(Jimp.intToRGBA(color));
+        } else {
+          rains.push([0,0,0,0]);
         }
+
     }
     return rains;
 }
-function infoCell(c) {
-    const r = c.filter(x=>x>0);
-    return {
-        "max": Math.max(...c),
-        "ave": (r.length == 0) ? 0 : r.reduce((a,b)=>a+b, 0) / r.length,
-        "rain": r.length / c.length
-    }
-}
 async function makeRainTable(){
-    await saveImage();
     const table = []
     for (let i = 1; i < 10; i++){
-        table.push({time:i*5, ... infoCell(await rainCell(`image/predict${i}.png`))});
+        table.push({time:i*5, rain: await seekCell(`image/predict${i}.png`)});
     }
     for (let i = 0; i < 10; i++){
-        table.push({time:i*60+60, ... infoCell(await rainCell(`image/longpredict${i}.png`))});
+        table.push({time:i*60+60, rain: await seekCell(`image/longpredict${i}.png`)});
     }
     return table
 }
@@ -117,7 +99,7 @@ var moment = require("moment");
 
 function renewImage(table) {
     const CWIDTH = 40;
-    const CHEIGHT = 20;
+    const CHEIGHT = target;
     const MARGIN = 5;
     const BMARGIN = 10;
     const SPAN = 7;
@@ -135,9 +117,11 @@ function renewImage(table) {
     .on('parsed', function() {
         const back = this.colors.new(60,60,60);
         this.fillRect(0, 0, img.width, img.height, back);
+
         const gray = this.colors.new(200,200,200);
         //this.drawLine(MARGIN, MARGIN + CHEIGHT, MARGIN + IWIDTH, MARGIN + CHEIGHT, gray);
         //this.drawLine(MARGIN, MARGIN + CHEIGHT, MARGIN, MARGIN, gray);
+
         const nowt = moment().add( -moment().minute() % 5, "minutes");
         for (let i = 0; i < SPAN+1; i++){
             const s = nowt.add(TIME, "minutes").format("HHmm");
@@ -151,60 +135,40 @@ function renewImage(table) {
         for (let t of table) {
             if (t["time"] > TIME*SPAN) break;
             const cnow = px(t["time"]);
-            let h = (1-Math.pow((1-t["rain"]), 3)) * CHEIGHT;
-            this.fillRect(cur, ~~(MARGIN + (CHEIGHT - h)/2),
-              cnow-cur, h, revtable(t["max"]));
+            console.log(t["rains"],cur, cnow)
+            t["rains"].forEach((rain, y) => {
+              this.fillRect(cur, MARGIN + y, cnow-cur, 1, rain);
+            })
             cur = cnow;
         }
         this.pack().pipe(fs.createWriteStream('graph.png'));
         console.log("OUTPUTED to graph.png");
     });
 }
-const sampletable = [ { time: 5, max: 10, ave: 0, rain: 0.4 },
-  { time: 10, max: 40, ave: 5, rain: 0.1 },
-  { time: 15, max: 3, ave: 0, rain: 0.2 },
-  { time: 20, max: 1, ave: 10, rain: 0.9 },
-  { time: 25, max: 0, ave: 0, rain: 0 },
-  { time: 30, max: 0, ave: 0, rain: 0 },
-  { time: 35, max: 0, ave: 0, rain: 0 },
-  { time: 40, max: 0, ave: 0, rain: 0 },
-  { time: 45, max: 0, ave: 0, rain: 0.1 },
-  { time: 60, max: 0, ave: 0, rain: 0.1 },
-  { time: 120, max: 0, ave: 0, rain: 0.1 },
-  { time: 180, max: 0, ave: 0, rain: 0.1 },
-  { time: 240, max: 0, ave: 0, rain: 0.1 },
-  { time: 300, max: 0, ave: 10, rain: 0.8 },
-  { time: 360, max: 0, ave: 0, rain: 0.1 },
-  { time: 420, max: 0, ave: 0, rain: 0.1 },
-  { time: 480, max: 0, ave: 0, rain: 0.1 },
-  { time: 540, max: 0, ave: 0, rain: 0 },
-  { time: 600, max: 0, ave: 0, rain: 0 } ];
-//
-//const twitter = require('twitter');
-//const client = new twitter({
-//    consumer_key: config.twitter.consumerKey,
-//    consumer_secret: config.twitter.consumerSecret,
-//    access_token_key: config.twitter.accessTokenKey,
-//    access_token_secret: config.twitter.accessTokenSecret
-//});
-//
+
+const conv = [[0,0,0,0],[3,3,234,255],[232,0,0,255]]
+const rains1 = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].map(x=>conv[x]);
+const rains2 = [0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0].map(x=>conv[x]);
+const rains3 = [2,2,1,2,1,2,1,2,2,2,2,2,2,2,2,2,2,2,2,2].map(x=>conv[x]);
+
+const sampletable = [
+  { time: 10, rains: rains2 },
+  { time: 20, rains: rains1 },
+  { time: 30, rains: rains3 },
+  { time: 40, rains: rains2 },
+  { time: 50, rains: rains2 },
+  { time: 60, rains: rains1 },
+  { time: 600, rains: rains1 },
+];
+
 async function sendImg(text) {
     const data = fs.readFileSync('graph.png'); //投稿する画像
-    const media = await client.post('media/upload', {media: data});
-    console.log(media);
-
-    //Twitterに投稿
-    const status = {
-        status: text,
-        media_ids: media.media_id_string // Pass the media id string
-    }
-    const response = await client.post('statuses/update', status);
-    console.log(response);
 }
 
 (async () => {
-const table = await makeRainTable();
-//const table = sampletable;
+    //await saveImage();
+//const table = await makeRainTable();
+const table = sampletable;
 console.log(table);
 renewImage(table);
 })()
