@@ -240,8 +240,8 @@ const util = require('util');
   renewImage(table);
   const {rain, sunny} = searchRainedSunny(table);
   if (rain) {
-    let res = await uploadImage(`./image/now.png`);
-    await postSlack("雨が振りそう!\n"+res["url"])
+    let res = await uploadImage(rain["image"]);
+    await postSlack("雨が降りそう!\n"+res["url"])
     if (sunny) {
       res = await uploadImage(sunny["image"]);
       await postSlack("この時間に止む?\n"+res["url"])
