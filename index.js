@@ -233,7 +233,7 @@ function searchRainedSunny(table){
 
 const util = require('util');
 
-(async () => {
+async function main(){
   await saveImage();
   const table = await makeRainTable();
   console.log(util.inspect(table, {"depth": null}));
@@ -251,13 +251,6 @@ const util = require('util');
     res = await uploadImage(`graph.png`);
     await postSlack("京都大学周辺予報\n"+res["url"]);
   }
-})()
-//require('date-utils');
-//setInterval(
-//    () => {
-//        const table = await makeRainTable();
-//        console.log(table);
-//        renewImage(table);
-//        sendImg("");
-//    }, 1000 * 60 * 30
-//);
+}
+
+(async()=>{ main() })();
