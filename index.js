@@ -50,6 +50,7 @@ async function saveImage(){
   await browser.close();
 }
 const colortable = {
+0x99b68cff: 0,
 0xffffffff: 0,
 0xf2f2ffff: 1,
 0xa0d2ffff: 5,
@@ -61,43 +62,67 @@ const colortable = {
 0xb40068ff: 130,
 };
 
-const target = 20;
+const colormemo = {};
+function fetchRainColor(c) {
+  if (colormemo[c]) {
+    return colormemo[c];
+  }
+  const x = numToRGBA(c);
+  let res = 0;
+  let min = 0xffffffff;
+  for (const [k,v] of Object.entries(colortable)){
+    const y = numToRGBA(Number.parseInt(k));
+    const dist = (x[1] - y[1]) * (x[1] - y[1]) +
+      (x[2] - y[2]) * (x[2] - y[2]) +
+      (x[3] - y[3]) * (x[3] - y[3]);
+    if (dist < min) {
+      res = v;
+      min = dist;
+    }
+  }
+  colormemo[c] = res;
+  return res;
+}
+
+const target = 25; // height of slit
 async function seekCell(imagef) {
     const image = await Jimp.read(imagef);
     const width = image.bitmap.width;
     const height = image.bitmap.height;
-    const targetx = 364;
-    const targety = 280;
+    const targetx = 365;
+    const targety = 275;
     const yl = targety - target / 2;
     const rains = []
+    const colors = []
     let rained = 0;
     for (let dy = 0; dy < target; dy+=1){
         const color = image.getPixelColor(targetx,yl+dy);
-        if (colortable[color]){
-          rains.push(Jimp.intToRGBA(color));
+        colors.push(color);
+        const rain = fetchRainColor(color);
+        rains.push(rain);
+        if (rain != 0) {
           rained++;
-        } else {
-          rains.push([0,0,0,0]);
         }
-
     }
-    return {rains, rained};
+    return {rains, colors, rained};
 }
 async function makeRainTable(){
     const table = []
     for (let i = 1; i < 10; i++){
-        table.push({time:i*5, ... await seekCell(`image/predict${i}.png`)});
+        const img = `image/predict${i}.png`;
+        table.push({time:i*5, image:img, ... await seekCell(img)});
     }
     for (let i = 0; i < 10; i++){
-        table.push({time:i*60+60, ... await seekCell(`image/longpredict${i}.png`)});
+        const img = `image/longpredict${i}.png`;
+        table.push({time:i*60+60, image:img, ... await seekCell(img)});
     }
     return table
 }
 
-function hasRain(table) {
-  return table.some(o=>o.rained>0);
+function numToRGBA(num) {
+  const t = Jimp.intToRGBA(num);
+  return [t.r,t.g,t.b,t.a];
 }
-
 var fs = require('fs');
 var drawing = require('pngjs-draw');
 var PNG = require('pngjs').PNG;
@@ -109,7 +134,7 @@ function renewImage(table) {
     const CHEIGHT = target;
     const MARGIN = 5;
     const BMARGIN = 10;
-    const SPAN = 7;
+    const SPAN = 10;
     const TIME = 60;
     const IWIDTH = CWIDTH * SPAN;
 
@@ -142,34 +167,14 @@ function renewImage(table) {
         for (let t of table) {
             if (t["time"] > TIME*SPAN) break;
             const cnow = px(t["time"]);
-            console.log(t["rains"],cur, cnow)
-            t["rains"].forEach((rain, y) => {
-              this.fillRect(cur, MARGIN + y, cnow-cur, 1, rain);
+            t["colors"].forEach((color, y) => {
+              this.fillRect(cur, MARGIN + y, cnow-cur, 1, numToRGBA(color));
             })
             cur = cnow;
         }
         this.pack().pipe(fs.createWriteStream('graph.png'));
         console.log("OUTPUTED to graph.png");
     });
-}
-
-const conv = [[0,0,0,0],[3,3,234,255],[232,0,0,255]]
-const rains1 = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0].map(x=>conv[x]);
-const rains2 = [0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0].map(x=>conv[x]);
-const rains3 = [2,2,1,2,1,2,1,2,2,2,2,2,2,2,2,2,2,2,2,2].map(x=>conv[x]);
-
-const sampletable = [
-  { time: 10, rains: rains2, rained: 0},
-  { time: 20, rains: rains1, rained: 2},
-  { time: 30, rains: rains3, rained: 2},
-  { time: 40, rains: rains2, rained: 2},
-  { time: 50, rains: rains2, rained: 0},
-  { time: 60, rains: rains1, rained: 2},
-  { time: 600, rains: rains1 , rained: 2},
-];
-
-async function sendImg(text) {
-    const data = fs.readFileSync('graph.png'); //投稿する画像
 }
 
 const secret = require("./secret.json");
@@ -209,16 +214,43 @@ function uploadImage(filename){
   })
 }
 
-(async () => {
-await saveImage();
-// const table = await makeRainTable();
-// const table = sampletable;
-// console.log(table);
-//  renewImage(table);
-for (const img of ["now.png", "predict5.img"]){
-  const res = await uploadImage("./image/predict5.png");
-  await postSlack(res["url"])
+
+function searchRainedSunny(table){
+  let rain = null;
+  let sunny = null
+  let lim = target/3;
+  for (const t of table) {
+    if (!rain && t["rained"] >= lim) {
+      rain = t;
+    }
+    // 33% rained is sunny
+    if (rain && t["rained"] < lim) {
+      sunny = t;
+    }
+  }
+  return {rain, sunny};
 }
+
+const util = require('util');
+
+(async () => {
+  await saveImage();
+  const table = await makeRainTable();
+  console.log(util.inspect(table, {"depth": null}));
+  renewImage(table);
+  const {rain, sunny} = searchRainedSunny(table);
+  if (rain) {
+    let res = await uploadImage(`./image/now.png`);
+    await postSlack("雨が振りそう!\n"+res["url"])
+    if (sunny) {
+      res = await uploadImage(sunny["image"]);
+      await postSlack("この時間に止む?\n"+res["url"])
+    } else {
+      await postSlack("しばらく止まなそう…");
+    }
+    res = await uploadImage(`graph.png`);
+    await postSlack("京都大学周辺予報\n"+res["url"]);
+  }
 })()
 //require('date-utils');
 //setInterval(
