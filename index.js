@@ -16,13 +16,14 @@ async function saveImage(){
   const imageSelector = ".jmamesh-contents > tr:nth-child(5)";
   await page.waitForSelector(imageSelector);
 
+  await page.waitFor(5000);
   const image = await page.$(imageSelector);
   await image.screenshot({path: './image/now.png'});
   const nextTimeSelector = ".jmamesh-contents > tr:nth-child(4) > td > table > tr > td:nth-child(5) > input";
   const nextTime = await page.$(nextTimeSelector);
   for (let i = 0; i < 10; i++){
     await nextTime.click();
-    await page.waitFor(50);
+    await page.waitFor(200);
     await image.screenshot({path: `./image/predict${i}.png`});
   }
   //await page.screenshot({path: 'example.png'});
@@ -69,26 +70,32 @@ async function seekCell(imagef) {
     const targety = 280;
     const yl = targety - target / 2;
     const rains = []
+    let rained = 0;
     for (let dy = 0; dy < target; dy+=1){
         const color = image.getPixelColor(targetx,yl+dy);
         if (colortable[color]){
           rains.push(Jimp.intToRGBA(color));
+          rained++;
         } else {
           rains.push([0,0,0,0]);
         }
 
     }
-    return rains;
+    return {rains, rained};
 }
 async function makeRainTable(){
     const table = []
     for (let i = 1; i < 10; i++){
-        table.push({time:i*5, rain: await seekCell(`image/predict${i}.png`)});
+        table.push({time:i*5, ... await seekCell(`image/predict${i}.png`)});
     }
     for (let i = 0; i < 10; i++){
-        table.push({time:i*60+60, rain: await seekCell(`image/longpredict${i}.png`)});
+        table.push({time:i*60+60, ... await seekCell(`image/longpredict${i}.png`)});
     }
     return table
+}
+
+function hasRain(table) {
+  return table.some(o=>o.rained>0);
 }
 
 var fs = require('fs');
@@ -152,25 +159,66 @@ const rains2 = [0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0].map(x=>conv[x]);
 const rains3 = [2,2,1,2,1,2,1,2,2,2,2,2,2,2,2,2,2,2,2,2].map(x=>conv[x]);
 
 const sampletable = [
-  { time: 10, rains: rains2 },
-  { time: 20, rains: rains1 },
-  { time: 30, rains: rains3 },
-  { time: 40, rains: rains2 },
-  { time: 50, rains: rains2 },
-  { time: 60, rains: rains1 },
-  { time: 600, rains: rains1 },
+  { time: 10, rains: rains2, rained: 0},
+  { time: 20, rains: rains1, rained: 2},
+  { time: 30, rains: rains3, rained: 2},
+  { time: 40, rains: rains2, rained: 2},
+  { time: 50, rains: rains2, rained: 0},
+  { time: 60, rains: rains1, rained: 2},
+  { time: 600, rains: rains1 , rained: 2},
 ];
 
 async function sendImg(text) {
     const data = fs.readFileSync('graph.png'); //投稿する画像
 }
 
+const secret = require("./secret.json");
+const cloudinary = require("cloudinary").v2;
+cloudinary.config(secret["cloudinary"]);
+
+const request = require('request');
+
+
+function postSlack(msg){
+    const options = {
+        url: secret["incoming"],
+        form: `payload={"text": "${msg}", "username": "nowcast","icon_emoji": ":umbrella:", "channel": "#nowcast"}`,
+        json :true
+    };
+    return new Promise((ok, ng) => {
+      request.post(options, function(error, response, body){
+        if (!error && response.statusCode == 200) {
+          ok(body.name);
+        } else {
+          ng(error, body)
+        }
+      });
+    })
+}
+
+function uploadImage(filename){
+  return new Promise((ok, ng) => {
+    cloudinary.uploader.upload(filename, { folder: 'test'  },
+    (error, result) => {
+      if (error) {
+        ng(error)
+      } else {
+        ok(result)
+      }
+    });
+  })
+}
+
 (async () => {
-    //await saveImage();
-//const table = await makeRainTable();
-const table = sampletable;
-console.log(table);
-renewImage(table);
+await saveImage();
+// const table = await makeRainTable();
+// const table = sampletable;
+// console.log(table);
+//  renewImage(table);
+for (const img of ["now.png", "predict5.img"]){
+  const res = await uploadImage("./image/predict5.png");
+  await postSlack(res["url"])
+}
 })()
 //require('date-utils');
 //setInterval(
